@@ -1,0 +1,151 @@
+module mainGame(clk, reset, columnSelect, confirmMove, winDetected, full, dropDone, activePlayer, dropEnable, winEnable, updateEnable);
+
+    input logic clk, reset;
+    input logic [3:0] columnSelect;
+    input logic confirmMove, winDetected, full, dropDone;
+    
+    output logic activePlayer, dropEnable, winEnable, updateEnable;
+    
+    //gpt code
+    typedef enum logic [2:0] {IDLE, PIECE_SELECTION, PIECE_PLACEMENT, WIN_CHECK, NEXT_PLAYER} state_t;
+    state_t ps, ns;
+
+
+    //toggle btw players
+
+    always_ff @(posedge clk) begin
+        if(reset)
+            activePlayer <= 1'b0;
+        else if (ps == NEXT_PLAYER)
+            activePlayer <= ~activePlayer;        
+    end
+
+    always_ff @(posedge clk) begin
+        if(reset)
+            ps <= IDLE;
+        else
+            ps <= ns;
+    end
+
+    //next state logic 
+  
+
+    always_comb begin
+
+        dropEnable = 1'b0;
+        updateEnable = 1'b0;
+        winEnable = 1'b0;
+
+        ns = ps;
+
+        case(ps)
+            IDLE: begin
+                if(confirmMove)
+                    ns = PIECE_SELECTION;
+            end
+
+            PIECE_SELECTION: begin
+                ns = PIECE_PLACEMENT;
+            end
+
+            PIECE_PLACEMENT: begin 
+                dropEnable = 1'b1;
+                if(dropDone)
+                    ns = WIN_CHECK;
+            end 
+
+            WIN_CHECK: begin
+                winEnable = 1'b1;
+                if(winDetected || full)
+                    ns = IDLE;
+                else
+                    ns = NEXT_PLAYER;
+            end 
+
+            NEXT_PLAYER: begin
+                updateEnable = 1'b1;
+                ns = IDLE;
+            end
+
+            // default: ns = ps;
+        endcase
+    end
+endmodule
+
+
+
+module mainGame_testbench();
+    logic clk, reset;
+    logic [3:0] columnSelect;
+    logic confirmMove, winDetected, full, dropDone;
+    logic activePlayer, dropEnable, winEnable, updateEnable;
+
+    mainGame DUT ( .clk(clk), .reset(reset),
+        .columnSelect(columnSelect),
+        .confirmMove(confirmMove),
+        .winDetected(winDetected),
+        .full(full),
+        .dropDone(dropDone),
+        .activePlayer(activePlayer),
+        .dropEnable(dropEnable),
+        .winEnable(winEnable),
+        .updateEnable(updateEnable)
+    );
+
+    parameter CLOCK_PERIOD = 100;
+    initial begin
+        clk <= 0;
+        forever #(CLOCK_PERIOD/2) clk <= ~clk;
+    end 
+
+    initial begin
+        @(posedge clk);
+        reset = 1; @(posedge clk);
+        reset = 0; @(posedge clk);
+
+        columnSelect = 4'd5;
+        confirmMove = 1;
+        @(posedge clk);
+        confirmMove = 0;
+
+
+        @(posedge clk);
+        dropDone = 1;
+        @(posedge clk);
+        dropDone = 0;
+
+        @(posedge clk);
+        winDetected = 0;
+        full = 0;
+        @(posedge clk);
+
+        assert (activePlayer == 1);
+
+        columnSelect = 4'd3;
+        confirmMove = 1;
+        @(posedge clk);
+        confirmMove = 0;
+        @(posedge clk);
+        dropDone = 1;
+        @(posedge clk);
+        dropDone = 0;
+        @(posedge clk);
+        winDetected = 1;
+        @(posedge clk);
+
+        assert(ps == IDLE);
+
+        $stop;
+    end
+endmodule 
+
+        
+
+
+
+
+
+
+
+
+

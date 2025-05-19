@@ -1,0 +1,306 @@
+module drop(clk, reset, right, left, position,confirm, dropDone, board0, board1, currentPlayer, leftPulse, rightPulse, confirmPulse, currentRow);
+
+    parameter DROP_DELAY = 100;  
+    parameter WIDTH = 7; //10 for 1000
+
+    input logic clk, reset;
+    input logic right, left, confirm;
+    input logic currentPlayer;
+    
+    output logic dropDone;
+    logic dropPulse; 
+    output logic [5:0][6:0] board0; //p1
+    output logic [5:0][6:0] board1; //p2
+
+    logic [WIDTH-1:0] dropCounter;
+
+    logic dropEnable;
+    output logic [5:0] currentRow;
+    logic [5:0] targetRow; 
+    output logic [2:0] position;
+    logic [2:0] latchedPosition;
+    output logic leftPulse, rightPulse, confirmPulse;
+
+
+    pos cursor (
+        .clk(clk),
+        .reset(reset),
+        .left(left),
+        .right(right),
+        .confirm(confirm),
+        .position(position),
+        .latchedPosition(latchedPosition),
+        .leftPulse(leftPulse),
+        .rightPulse(rightPulse),
+        .confirmPulse(confirmPulse)
+    );
+
+    enum {waiting, dropping} ps, ns;
+
+    always_comb begin 
+        case (ps)
+            waiting: begin
+                if (confirmPulse)
+                    ns = dropping;
+                else
+                    ns = waiting;
+            end
+
+            dropping: begin 
+                if (dropEnable && ~dropDone)
+                    ns = dropping;
+                else
+                    ns = waiting;
+            end
+            
+            default: ns = waiting;
+        endcase
+    end
+
+    logic [2:0] computedTarget;
+    always_comb begin
+        computedTarget = 3'd7; 
+        if ((board0[5][position] == 0) && (board1[5][position] == 0))
+            computedTarget = 3'd5;
+        if ((board0[4][position] == 0) && (board1[4][position] == 0))
+            computedTarget = 3'd4;
+        if ((board0[3][position] == 0) && (board1[3][position] == 0))
+            computedTarget = 3'd3;
+        if ((board0[2][position] == 0) && (board1[2][position] == 0))
+            computedTarget = 3'd2;
+        if ((board0[1][position] == 0) && (board1[1][position] == 0))
+            computedTarget = 3'd1;
+        if ((board0[0][position] == 0) && (board1[0][position] == 0))
+            computedTarget = 3'd0;
+    end
+
+
+    always_ff @(posedge clk or posedge reset) begin
+        if (reset)
+            ps <= waiting;
+        else
+            ps <= ns;
+    end
+
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            integer i, j;
+            for(i = 0; i < 6; i++) begin
+                for(j = 0; j < 7; j++) begin
+                    board0[i][j] <= 0;
+                    board1[i][j] <= 0;
+                end
+            end
+            
+            dropEnable <= 0;
+            dropDone <= 0;
+            currentRow <= 0;
+        end else begin
+            case (ps)
+                waiting: begin
+                    if (confirmPulse) begin
+                        targetRow <= computedTarget;
+                        dropEnable <= 1;
+                        dropDone <= 0;
+                        if (computedTarget != 3'd7)
+                            currentRow <= 3'd5;
+                        else if (currentPlayer == 0)
+                            board0[0][latchedPosition] <= 1;
+                        else
+                            board1[0][latchedPosition] <= 1;
+                    end
+                end
+                dropping: begin
+                    if (dropEnable && dropPulse) begin
+                        if (currentRow > targetRow) begin
+                            currentRow <= currentRow - 1;
+                            if (currentPlayer == 0) begin
+                                if(currentRow == 3'd5) begin
+                                    board0[currentRow][latchedPosition] <= 1;
+                                end
+                                else begin
+                                    board0[currentRow + 1][latchedPosition] <= 0;
+                                    board0[currentRow][latchedPosition]  <= 1;
+                                end
+                            end
+                            else begin
+                                if(currentRow == 3'd5) begin
+                                    board1[currentRow][latchedPosition] <= 1;
+                                end
+                                else begin
+                                    board1[currentRow + 1][latchedPosition] <= 0;
+                                    board1[currentRow][latchedPosition]  <= 1;      
+                                end                          
+                            end
+                        end
+                        else if (currentRow == targetRow) begin
+                            if (currentPlayer == 0) begin
+                                board0[currentRow + 1][latchedPosition] <= 0;
+                                board0[currentRow][latchedPosition] <= 1;
+                            end
+                            else begin
+                                board1[currentRow + 1][latchedPosition] <= 0;
+                                board1[currentRow][latchedPosition] <= 1;
+                            end
+                            dropDone   <= 1;
+                            dropEnable <= 0;
+                        end
+                    end
+                end
+                default: ;
+            endcase
+        end
+    end
+
+
+    always_ff @(posedge clk) begin 
+        if (reset)
+            dropCounter <= 0;
+        else if (dropCounter == DROP_DELAY - 1) //when you want to increment number to reset when inside the cycle
+            dropCounter <= 0;
+        else 
+            dropCounter <= dropCounter + 1;
+    end
+
+
+	always_comb begin
+        if(dropEnable)
+		    dropPulse = (dropCounter == DROP_DELAY - 1);
+        else
+            dropPulse = 0;
+	end
+ 
+
+
+endmodule
+
+        
+module drop_testbench();
+  logic clk;
+  logic reset;
+  logic right;
+  logic left;
+  logic confirm;
+  logic currentPlayer;
+  logic dropDone;
+  logic [5:0][6:0] board0;
+  logic [5:0][6:0] board1;
+  logic [5:0] currentRow;
+
+  parameter CLOCK_PERIOD = 100;
+
+  initial begin
+    clk = 0;
+    forever #(CLOCK_PERIOD/2) clk = ~clk;
+  end
+
+  drop dut (
+    .clk(clk),
+    .reset(reset),
+    .right(right),
+    .left(left),
+    .confirm(confirm),
+    .currentPlayer(currentPlayer),
+    .dropDone(dropDone),
+    .board0(board0),
+    .board1(board1),
+    .currentRow(currentRow)
+  );
+
+  initial begin
+    reset = 1;
+    right = 0;
+    left  = 0;
+    confirm = 0;
+    currentPlayer = 0;
+
+    repeat (20) @(posedge clk);
+    reset = 0;
+
+    repeat (20) @(posedge clk);
+    right = 1;
+    repeat (20) @(posedge clk);
+    right = 0;
+    repeat (20) @(posedge clk);
+    confirm = 1;
+    repeat (5) @(posedge clk);
+    confirm = 0;
+    wait (dropDone == 1);
+
+    repeat (20) @(posedge clk);
+    currentPlayer = 1;
+    repeat (20) @(posedge clk);
+    confirm = 1;
+    repeat (5) @(posedge clk);
+    confirm = 0;
+    wait (dropDone == 1);
+
+    repeat (20) @(posedge clk);
+    currentPlayer = 0;
+    repeat (20) @(posedge clk);
+    left = 1;
+    repeat (20) @(posedge clk);
+    left = 0;
+    repeat (20) @(posedge clk);
+    left = 1;
+    repeat (20) @(posedge clk);
+    left = 0;
+    repeat (20) @(posedge clk);
+    confirm = 1;
+    repeat (5) @(posedge clk);
+    confirm = 0;
+    wait (dropDone == 1);
+
+    repeat (20) @(posedge clk);
+    currentPlayer = 1;
+    repeat (20) @(posedge clk);
+    right = 1;
+    repeat (20) @(posedge clk);
+    right = 0;
+    repeat (20) @(posedge clk);
+    right = 1;
+    repeat (20) @(posedge clk);
+    right = 0;
+    repeat (20) @(posedge clk);
+    confirm = 1;
+    repeat (5) @(posedge clk);
+    confirm = 0;
+    wait (dropDone == 1);
+
+    repeat (20) @(posedge clk);
+    currentPlayer = 0;
+    repeat (20) @(posedge clk);
+    confirm = 1;
+    repeat (5) @(posedge clk);
+    confirm = 0;
+    wait (dropDone == 1);
+
+    repeat (20) @(posedge clk);
+    currentPlayer = 1;
+    repeat (20) @(posedge clk);
+    left = 1;
+    repeat (20) @(posedge clk);
+    left = 0;
+    repeat (20) @(posedge clk);
+    confirm = 1;
+    repeat (5) @(posedge clk);
+    confirm = 0;
+    wait (dropDone == 1);
+
+    repeat (20) @(posedge clk);
+    currentPlayer = 0;
+    repeat (20) @(posedge clk);
+    right = 1;
+    repeat (20) @(posedge clk);
+    right = 0;
+    repeat (20) @(posedge clk);
+    confirm = 1;
+    repeat (5) @(posedge clk);
+    confirm = 0;
+    wait (dropDone == 1);
+
+    repeat (20) @(posedge clk);
+    $stop;
+  end
+endmodule

@@ -1,0 +1,129 @@
+module pos (clk, reset, left, right, confirm, position, leftPulse, rightPulse, confirmPulse, latchedPosition);
+
+    input logic clk, reset, left, right, confirm;
+    
+    output logic leftPulse, rightPulse, confirmPulse;
+    output logic [2:0] latchedPosition;
+    // output logic [6:0] ledPosition;
+
+    output logic [2:0] position;
+    logic confirmed;
+
+    
+    userInput player1 (
+        .clk(clk),
+        .reset(reset),
+        .inSignal1(left),
+        .inSignal2(right),
+        .confirmSignal(confirm),
+        .outSignal1(leftPulse),
+        .outSignal2(rightPulse),
+        .outSignal3(confirmPulse)  
+    );
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+        position       <= 0;
+        latchedPosition<= 0;
+        confirmed      <= 0;
+        end else begin
+        // Update position regardless of confirmed state.
+        if (leftPulse) begin
+            if (position == 0)
+                position <= 6;
+            else
+                position <= position - 1;
+        end else if (rightPulse) begin
+            if (position == 6)
+                position <= 0;
+            else
+                position <= position + 1;
+        end
+
+        // Latch position on confirmPulse and generate a one-cycle confirmed flag.
+        if (confirmPulse) begin
+            latchedPosition <= position;
+            confirmed <= 1;
+        end 
+        else begin
+            confirmed <= 0;
+            end
+        end
+    end
+
+
+
+endmodule
+
+
+module pos_testbench();
+
+    logic clk, reset;
+    logic left, right, confirm;
+    logic [6:0] ledPosition;
+
+    // Instantiate the Device Under Test (DUT)
+    pos dut (
+        .clk(clk),
+        .reset(reset),
+        .left(left),
+        .right(right),
+        .confirm(confirm),
+        .position(position)
+    );
+
+    // Clock Generation: 100 time-unit period
+    parameter CLOCK_PERIOD = 100;
+    initial begin
+        clk = 0;
+        forever #(CLOCK_PERIOD/2) clk = ~clk;
+    end
+
+    initial begin
+        // Initialize all signals
+        reset   = 1;
+        left    = 0;
+        right   = 0;
+        confirm = 0;
+
+        // Hold reset for 2 clock cycles
+        repeat(2) @(posedge clk);
+        reset = 0;
+        @(posedge clk);
+
+        // Test 1: Generate a right pulse (move from 0 to 1)
+        right = 1;
+        @(posedge clk);
+        right = 0;
+        @(posedge clk);
+
+        // Test 2: Generate a left pulse (should wrap or decrement accordingly)
+        left = 1;
+        @(posedge clk);
+        left = 0;
+        @(posedge clk);
+
+        // Test 3: Generate multiple right pulses to test wrap-around
+        repeat(7) begin
+            right = 1;
+            @(posedge clk);
+            right = 0;
+            @(posedge clk);
+        end
+
+        // Test 4: Confirm the current position
+        confirm = 1;
+        @(posedge clk);
+        confirm = 0;
+        @(posedge clk);
+
+        // Test 5: Attempt movement after confirmation (should have no effect)
+        right = 1;
+        @(posedge clk);
+        right = 0;
+        @(posedge clk);
+
+        $finish;
+    end
+
+endmodule
